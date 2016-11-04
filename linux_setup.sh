@@ -8,7 +8,7 @@
 # e.g.
 #
 # #option config
-# SYSTEM_PACKAGE_INSTALL_ALWAYS_YES 0
+# INSTALL_ALWAYS_YES 0
 #
 # PACKAGES:
 # git
@@ -18,19 +18,26 @@
 ##########################################################
 
 #global variables
+##########################################################
 #config default file name
 config_file="package.conf"
 
 #installation command
 installation_command=""
 
-#start installation command
-declare -i start_install=0
+#keep track # of installation command
+declare -i num_install=0
+
+#number of installation failed
+declare -i num_failed=0
 
 #declare associative array to hold all the config key/value pair
 declare -A system_config
+system_config[INSTALL_ALWAYS_YES]="0"
+system_config[TERMINATE_ON_ERROR]="0"
 
-
+#functions
+##########################################################
 function determine_system {
     if [ -f /etc/debian_version ]; then
         echo "This is a Debian based liux"
@@ -38,43 +45,57 @@ function determine_system {
     fi
 }
 
-function run_generic_command {
-    $($@)
-    local status=$?
-    if [ $status -ne 0 ]; then
-        echo "error with $1" >&2
-        exit 100;
+function handle_command_error {
+    if [ $1 -ne 0 ]; then
+        echo "error with [${@:2}]" >&2
+        if [ ${system_config[TERMINATE_ON_ERROR]} -eq "1" ]; then
+            echo "INSTALLATION TERMINATED"
+            exit 100;
+        fi
     fi
+}
+
+function run_generic_command {
+    local expanded_command="$@"
+    echo "Executing generic command"
+    echo "[$expanded_command]"
+    eval "$expanded_command"
+    local status=$?
+    handle_command_error $status $expanded_command
     return $status
 }
 
 function run_install_command {
-    $($installation_command ${system_config[always_yes]} $1)
-    local status=$
-    if [ $status -ne 0 ]; then
-        echo "error with $1" >&2
-        exit 100;
-    fi
+    local always_yes=$([ "${system_config[INSTALL_ALWAYS_YES]}" = "1" ] && echo "-y" || echo "")
+    local expanded_command="$installation_command $always_yes $1"
+    echo "Executing installation command"
+    echo "[$expanded_command]"
+    eval "$expanded_command"
+    local status=$?
+    handle_command_error $status $expanded_command
     return $status
 }
 
-function print_simple_help {
+function print_config_file_hint {
     echo "No $config_file detected"
     echo "Please create a package.conf in the same directory"
     echo "e.g."
     echo "#option config"
-    echo "SYSTEM_PACKAGE_INSTALL_ALWAYS_YES 0"
+    echo "INSTALL_ALWAYS_YES 0"
     echo "PACKAGES:"
     echo "git"
     echo "tmux"
     echo "vim"
-    echo -e "\nFor detailed option explanations use -h"
+}
+
+function print_simple_help {
+    echo -e "use -h to seek help"
 }
 
 function print_detailed_help {
     echo "A file named $config_file should exist in the same dir"
     echo "The file formats are"
-    echo -e "\n"
+    echo
     echo "<OPTION1> <VALUE1>"
     echo "<OPTION2> <VALUE2>"
     echo "<OPTION3> <VALUE3>"
@@ -86,23 +107,36 @@ function print_detailed_help {
     echo "..."
     echo -e "\n"
     echo "Possible OPTIONS are:"
+    echo "-f    to specify config_file"
+    echo "-h    this help page"
 }
 
-function triage_config {
-    echo "Read in: $1"
-    if [[ $1 == PACKAGE* ]]; then
-        echo "Installation package start from here"
-        start_install=1
+function check_bash_version {
+    if [ "$BASH_VERSINFO" -lt 4 ]; then
+        echo "require bash version 4+ to work"
+        exit 100
+    else
+        echo "You are using bash version $BASH_VERSINFO"
     fi
-    return $start_install
 }
 
+function set_config {
+    local key=$1
+    local value=$2
+    if [[ $key == INSTALL_ALWAYS_YES* ]]; then
+        echo -n "INSTALL_ALWAYS_YES -> "
+        system_config[INSTALL_ALWAYS_YES]=$value
+        echo "${system_config[INSTALL_ALWAYS_YES]}"
+    elif [[ $key == TERMINATE_ON_ERROR* ]]; then
+        echo -n "TERMINATE_ON_ERROR -> "
+        system_config[TERMINATE_ON_ERROR]=$value
+        echo "${system_config[TERMINATE_ON_ERROR]}"
+    fi
+}
+#start of the script
 #################################################
 
-if [ "$BASH_VERSINFO" < 4 ]; then
-    echo "require bash version 4+ to work"
-    exit 100
-fi
+check_bash_version
 
 while getopts ":hf:" opt; do
     case $opt in
@@ -125,6 +159,7 @@ while getopts ":hf:" opt; do
 done
 
 if [ ! -f $config_file ]; then
+    print_config_file_hint
     print_simple_help
     exit 100
 fi
@@ -132,12 +167,19 @@ fi
 determine_system
 
 while IFS='' read -r line || [[ -n "$line" ]]; do
-    triage_config $line
+    if [[ $line == PACKAGE* ]]; then
+        echo "Installation package start from here"
+        ((num_install++))
+        continue # Skip this line
+    fi
+    if [ $num_install -gt 0 ]; then
+        run_install_command $line
+        ((num_install++))
+    else
+        set_config $line
+    fi
 done < "$config_file"
 
-#echo "installing some essential tools"
-#run_command sudo apt-get install vim git tmux clang clang++ cmake ack-grep 
-#
 #echo "installing custome scripts"
 #run_command cd ~
 #run_command echo $PWD
