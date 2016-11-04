@@ -39,9 +39,18 @@ system_config[TERMINATE_ON_ERROR]="0"
 #functions
 ##########################################################
 function determine_system {
-    if [ -f /etc/debian_version ]; then
-        echo "This is a Debian based liux"
-        installation_command="apt-get install"
+    local os_type=`uname`
+    if [[ "$os_type" == "Linux" ]]; then
+        echo "This is a Linux based system"
+        if [ -f /etc/debian_version ]; then
+            echo "This is a Debian based system"
+            installation_command="apt-get install"
+        else
+            echo "[$os_type]:[rpm?pacman] NOT SUPPORTED YET"
+        fi
+    elif [[ "$os_type" == "Darwin" ]]; then
+        echo "This is a MacOS based system"
+        installation_command="brew install"
     fi
 }
 
@@ -66,6 +75,7 @@ function run_generic_command {
 }
 
 function run_install_command {
+    sleep 3
     local always_yes=$([ "${system_config[INSTALL_ALWAYS_YES]}" = "1" ] && echo "-y" || echo "")
     local expanded_command="$installation_command $always_yes $1"
     echo "Executing installation command"
