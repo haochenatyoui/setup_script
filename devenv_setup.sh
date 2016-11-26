@@ -59,6 +59,7 @@ function handle_command_error {
         echo "error with [${@:2}]" >&2
         if [ ${system_config[TERMINATE_ON_ERROR]} -eq "1" ]; then
             echo "INSTALLATION TERMINATED"
+            ((num_failed++))
             exit 100;
         fi
     fi
@@ -143,6 +144,14 @@ function set_config {
         echo "${system_config[TERMINATE_ON_ERROR]}"
     fi
 }
+
+function installation_summary {
+    ((num_install--))
+    echo "---- Installation finished ----"
+    echo "Installation attempts: $num_install"
+    echo "Installation failed: $num_failed"
+}
+
 #start of the script
 #################################################
 
@@ -183,12 +192,18 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
         continue # Skip this line
     fi
     if [ $num_install -gt 0 ]; then
-        run_install_command $line
-        ((num_install++))
+        if [[ ${line:0:1} == "#" ]]; then
+            echo "Skipping $line"
+        else
+            run_install_command $line
+            ((num_install++))
+        fi
     else
         set_config $line
     fi
 done < "$config_file"
+
+installation_summary
 
 #echo "installing custome scripts"
 #run_command cd ~
