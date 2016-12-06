@@ -1,5 +1,3 @@
-#!/bin/bash
-
 ##########################################################
 #This script will determine you system
 #Install packages based on your package.conf file
